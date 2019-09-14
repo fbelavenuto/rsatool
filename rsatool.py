@@ -1,18 +1,22 @@
-#!/usr/bin/env python2
-import base64, fractions, optparse, random
+#!/usr/bin/env python3
+import base64
+import math
+import optparse
+import random
+from argparse import ArgumentError
+from pyasn1.codec.der import encoder    # pip install pyasn1
+from pyasn1.type.univ import Integer, Sequence
 try:
-    import gmpy
-except ImportError as e:
+    import gmpy                         # pip install gmpy
+except ImportError as ex:
     try:
-        import gmpy2 as gmpy
+        import gmpy2 as gmpy            # pip install gmpy2
     except ImportError:
-        raise e
+        raise ex
 
-from pyasn1.codec.der import encoder
-from pyasn1.type.univ import *
-
-PEM_TEMPLATE = '-----BEGIN RSA PRIVATE KEY-----\n%s-----END RSA PRIVATE KEY-----\n'
+PEM_TEMPLATE = '-----BEGIN RSA PRIVATE KEY-----\n{}-----END RSA PRIVATE KEY-----\n'
 DEFAULT_EXP = 65537
+
 
 def factor_modulus(n, d, e):
     """
@@ -36,23 +40,28 @@ def factor_modulus(n, d, e):
         t = quotient
 
     found = False
-
+    c1 = 0
     while not found:
         i = 1
-        a = random.randint(1,n-1)
+        a = random.randint(1, n - 1)
 
         while i <= s and not found:
-            c1 = pow(a, pow(2, i-1, n) * t, n)
+            c1 = pow(a, pow(2, i - 1, n) * t, n)
             c2 = pow(a, pow(2, i, n) * t, n)
 
             found = c1 != 1 and c1 != (-1 % n) and c2 == 1
 
             i += 1
 
-    p = fractions.gcd(c1-1, n)
+    p = math.gcd(c1 - 1, n)
     q = n // p
 
     return p, q
+
+
+def parts(s, l):
+    return '\n'.join([s[i:i + l] for i in range(0, len(s), l)])
+
 
 class RSA:
     def __init__(self, p=None, q=None, n=None, d=None, e=DEFAULT_EXP):
@@ -69,7 +78,7 @@ class RSA:
 
             self.p = p
             self.q = q
-        elif n and d:   
+        elif n and d:
             self.p, self.q = factor_modulus(n, d, e)
         else:
             raise ArgumentError('Either (p, q) or (n, d) must be provided')
@@ -95,38 +104,36 @@ class RSA:
         """
         Return OpenSSL-compatible PEM encoded key
         """
-        return (PEM_TEMPLATE % base64.encodestring(self.to_der()).decode()).encode()
+        return PEM_TEMPLATE.format(base64.encodebytes(self.to_der()).decode()).encode()
 
     def to_der(self):
         """
         Return parameters as OpenSSL compatible DER encoded key
         """
         seq = Sequence()
-
+        i = 0
         for x in [0, self.n, self.e, self.d, self.p, self.q, self.dP, self.dQ, self.qInv]:
-            seq.setComponentByPosition(len(seq), Integer(x))
-
+            seq.setComponentByPosition(i, Integer(x))
+            i += 1
         return encoder.encode(seq)
 
     def dump(self, verbose):
-        vars = ['n', 'e', 'd', 'p', 'q']
+        dvars = ['n', 'e', 'd', 'p', 'q']
 
         if verbose:
-            vars += ['dP', 'dQ', 'qInv']
+            dvars += ['dP', 'dQ', 'qInv']
 
-        for v in vars:
+        for v in dvars:
             self._dumpvar(v)
 
     def _dumpvar(self, var):
         val = getattr(self, var)
 
-        parts = lambda s, l: '\n'.join([s[i:i+l] for i in range(0, len(s), l)])
-
         if len(str(val)) <= 40:
-            print('%s = %d (%#x)\n' % (var, val, val))
+            print('{0} = {1} ({1:#x})\n'.format(var, int(val)))
         else:
-            print('%s =' % var)
-            print(parts('%x' % val, 80) + '\n')
+            print('{} ='.format(var))
+            print(parts('{:#x}'.format(val), 80) + '\n')
 
 
 if __name__ == '__main__':
@@ -136,10 +143,13 @@ if __name__ == '__main__':
     parser.add_option('-q', dest='q', help='prime', type='int')
     parser.add_option('-n', dest='n', help='modulus', type='int')
     parser.add_option('-d', dest='d', help='private exponent', type='int')
-    parser.add_option('-e', dest='e', help='public exponent (default: %d)' % DEFAULT_EXP, type='int', default=DEFAULT_EXP)
+    parser.add_option('-e', dest='e', help='public exponent (default: %d)' % DEFAULT_EXP, type='int',
+                      default=DEFAULT_EXP)
     parser.add_option('-o', dest='filename', help='output filename')
-    parser.add_option('-f', dest='format', help='output format (DER, PEM) (default: PEM)', type='choice', choices=['DER', 'PEM'], default='PEM')
-    parser.add_option('-v', dest='verbose', help='also display CRT-RSA representation', action='store_true', default=False)
+    parser.add_option('-f', dest='format', help='output format (DER, PEM) (default: PEM)', type='choice',
+                      choices=['DER', 'PEM'], default='PEM')
+    parser.add_option('-v', dest='verbose', help='also display CRT-RSA representation', action='store_true',
+                      default=False)
 
     try:
         (options, args) = parser.parse_args()
@@ -157,8 +167,7 @@ if __name__ == '__main__':
         rsa.dump(options.verbose)
 
         if options.filename:
-            print('Saving %s as %s' % (options.format, options.filename))
-
+            print('Saving {} as {}'.format(options.format, options.filename))
 
             if options.format == 'PEM':
                 data = rsa.to_pem()
@@ -169,6 +178,6 @@ if __name__ == '__main__':
             fp.write(data)
             fp.close()
 
-    except optparse.OptionValueError as e:
+    except optparse.OptionValueError as ex:
         parser.print_help()
-        parser.error(e.msg)
+        parser.error(ex.msg)
