@@ -68,6 +68,7 @@ def factor_modulus(n, d, e):
     """
     t = (e * d - 1)
     s = 0
+    maxit = 2000
 
     while True:
         quotient, remainder = divmod(t, 2)
@@ -80,18 +81,19 @@ def factor_modulus(n, d, e):
 
     found = False
     c1 = 0
-    while not found:
+    while not found and maxit > 0:
         i = 1
         a = random.randint(1, n - 1)
 
         while i <= s and not found:
             c1 = pow(a, pow(2, i - 1, n) * t, n)
             c2 = pow(a, pow(2, i, n) * t, n)
-
             found = c1 != 1 and c1 != (-1 % n) and c2 == 1
-
             i += 1
+            maxit -= 1
 
+    if maxit == 0:
+        return None, None
     p = math.gcd(c1 - 1, n)
     q = n // p
 
@@ -119,8 +121,10 @@ class RSA:
             self.q = q
         elif n and d:
             self.p, self.q = factor_modulus(n, d, e)
+            if self.p is None or self.e is None:
+                raise ArgumentError(None, 'Impossible to calculate p and q, check values')
         else:
-            raise ArgumentError('Either (p, q) or (n, d) must be provided')
+            raise ArgumentError(None, 'Either (p, q) or (n, d) must be provided')
 
         self._calc_values()
 
