@@ -6,16 +6,55 @@ import random
 from argparse import ArgumentError
 from pyasn1.codec.der import encoder    # pip install pyasn1
 from pyasn1.type.univ import Integer, Sequence
-try:
-    import gmpy                         # pip install gmpy
-except ImportError as ex:
-    try:
-        import gmpy2 as gmpy            # pip install gmpy2
-    except ImportError:
-        raise ex
 
 PEM_TEMPLATE = '-----BEGIN RSA PRIVATE KEY-----\n{}-----END RSA PRIVATE KEY-----\n'
 DEFAULT_EXP = 65537
+
+
+def is_prime(n, k=5):  # miller-rabin
+    """
+    https://stackoverflow.com/questions/36522167/checking-primality-of-very-large-numbers-in-python
+    :param n: Number to test
+    :param k: random trials
+    :return: boolean
+    """
+    if n < 2:
+        return False
+    for p in [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]:
+        if n % p == 0:
+            return n == p
+    s, d = 0, n - 1
+    while d % 2 == 0:
+        s, d = s + 1, d // 2
+    for i in range(k):
+        x = pow(random.randint(2, n - 1), d, n)
+        if x == 1 or x == n - 1:
+            continue
+        for r in range(1, s):
+            x = (x * x) % n
+            if x == 1:
+                return False
+            if x == n - 1:
+                break
+        else:
+            return False
+    return True
+
+
+def egcd(a, b):
+    if a == 0:
+        return b, 0, 1
+    else:
+        g, y, x = egcd(b % a, a)
+        return g, x - (b // a) * y, y
+
+
+def modinv(a, m):
+    g, x, y = egcd(a, m)
+    if g != 1:
+        raise Exception('modular inverse does not exist')
+    else:
+        return x % m
 
 
 def factor_modulus(n, d, e):
@@ -73,8 +112,8 @@ class RSA:
         self.e = e
 
         if p and q:
-            assert gmpy.is_prime(p), 'p is not prime'
-            assert gmpy.is_prime(q), 'q is not prime'
+            assert is_prime(p), 'p is not prime'
+            assert is_prime(q), 'q is not prime'
 
             self.p = p
             self.q = q
@@ -93,12 +132,12 @@ class RSA:
         else:
             phi = (self.p ** 2) - self.p
 
-        self.d = gmpy.invert(self.e, phi)
+        self.d = modinv(self.e, phi)
 
         # CRT-RSA precomputation
         self.dP = self.d % (self.p - 1)
         self.dQ = self.d % (self.q - 1)
-        self.qInv = gmpy.invert(self.q, self.p)
+        self.qInv = modinv(self.q, self.p)
 
     def to_pem(self):
         """
@@ -128,9 +167,11 @@ class RSA:
 
     def _dumpvar(self, var):
         val = getattr(self, var)
+        if type(val) is not Integer:
+            val = int(val)
 
         if len(str(val)) <= 40:
-            print('{0} = {1} ({1:#x})\n'.format(var, int(val)))
+            print('{0} = {1} ({1:#x})\n'.format(var, val))
         else:
             print('{} ='.format(var))
             print(parts('{:#x}'.format(val), 80) + '\n')
